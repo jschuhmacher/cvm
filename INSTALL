@@ -1,0 +1,18 @@
+For correct functioning this program depends on the following software to be 
+installed:
+
+1) Python 2.6.2 Stackless: this may be obtained from subversion at:
+   http://svn.python.org/projects/stackless/branches/release26-maint/, more
+   information can be found at: http://www.stackless.com
+2) Numpy 1.4.0.dev6885: this may be obtained from subversion at:
+   http://svn.scipy.org/svn/numpy/trunk/, more information can be found at:
+   http://www.scipy.org/Installing_SciPy
+3) Scipy 0.8.0.dev5691: this may be obtained from subversion at:
+   http://svn.scipy.org/svn/scipy/trunk/, more information can be found at:
+   http://www.scipy.org/Installing_SciPy
+4) argparse 0.9.1: this may be obtained from the Python Package Index: 
+   http://pypi.python.org/pypi/argparse/, more information can be found at: 
+   http://code.google.com/p/argparse/
+
+although other versions of the software may happen to work correctly, this has 
+not been tested.

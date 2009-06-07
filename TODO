@@ -1,0 +1,23 @@
+## Things to do ##
+
+# Dataset # 
+ - Create data structure for data-sets
+ - Provide IO functionality for Dataset
+ - Implement data set splitting
+ - Implement data set shuffling
+
+# Test #
+ - Implement classification by linear classifier
+ - Implement performance statistics, precision, recall, F1, confusion matrix.
+  
+# Train #
+ - Implement CVM algorithm
+
+# Main #
+ - Commandline tool 
+ 
+## Wishlist ##
+
+# Train #
+ - Choice between one-against-all and one-vs-one
+ -
