@@ -24,8 +24,11 @@ File: trainer.py
 moduledocs
 '''
 
+# System
 import stackless
 import logging
+
+# Local
 import common.data
 import common.model
 import cvm
@@ -34,28 +37,30 @@ class Trainer( object ):
     ''' classdocs
     '''
     dataset = None
+    models = None
 
     def __init__( self, dataset ):
         self.dataset = dataset
+        self.models = dict()
 
-    def train_tasklet ( self, model ):
+    def train_tasklet ( self, label ):
         ''' Train one classifier for one class '''
-        classifier = cvm.CVM( model, self.dataset )
-        classifier.train()
+        classifier = cvm.CVM( label, self.dataset )
+        self.models[label] = classifier.train()
 
     def train( self ):
         ''' Train a classifier for every class, tries to train the profiles 
             concurrently.
         '''
-        models = {}
-        for label in self.dataset.classes:
-            models[label] = common.model.Model( label )
-            stackless.tasklet( self.train_tasklet )( models[label] )
-            logging.info( "  Scheduling training job for class <{0}>".
+        for label in self.dataset.get_classes():
+            logging.info( "  Initialising training job for class <{0}>".
                           format( label ) )
-            stackless.schedule()
+            stackless.tasklet( self.train_tasklet )( label )
 
-        logging.info( '  Start jobs...' )
+
+        logging.info( "  Scheduling training jobs" )
+        stackless.schedule()
+        logging.info( '  Starting training jobs' )
         stackless.run()
 
         return self.models

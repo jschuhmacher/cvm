@@ -1,23 +1,34 @@
 ## Things to do ##
 
+# Tips from Evgeni #
+ - Check all matrix copying, numpy and scipy copy by reference
+ - Fix all random seeds
+ - Check if the QP-solver can handle intitial values for alpha
+
 # Dataset # 
- - Create data structure for data-sets
- - Provide IO functionality for Dataset
- - Implement data set splitting
- - Implement data set shuffling
+ - Improve data structure for data-sets, 
+   Evgeni suggested Scipy sparse matrices
+ - Do not remove empty columns from the data matrix, they might be needed
+   a sparse structure removes the need to do this.
+ - Nice to have: store the preprocessed data, for faster reruns
+ - Nice to have: Implement dataset splitting
+ - Nice to have: Implement dataset shuffling
+   For simplicity remove the current shuffling
 
 # Test #
  - Implement classification by linear classifier
- - Implement performance statistics, precision, recall, F1, confusion matrix.
+ - Implement performance statistics, 
+   precision, recall, F1 measure, confusion matrix.
   
 # Train #
- - Implement CVM algorithm
+ - Debug the CVM algorithm
+ - Remove the stackless python implementation, it only utilises 1 core.
+ - Nice to have: some other form of parallel training, maybe 
+   parallel python http://www.parallelpython.com/ or
+   just use os threads or processes.
+ - Nice to have: allow for a choice between One-vs-All and One-vs-One
+   classification
 
 # Main #
- - Commandline tool 
- 
-## Wishlist ##
+ - Commandline tool: write better usage instructions
 
-# Train #
- - Choice between one-against-all and one-vs-one
- -

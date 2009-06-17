@@ -27,11 +27,35 @@ moduledocs
 class Model( object ):
     ''' classdocs
     '''
-
     class_name = None
-    weights = None
+    support_vectors = None
+    support_vector_labels = None
+    nr_svs = 0
+    alphas = None
     b = None
-    examples = None
 
-    def __init__( self, class_name ):
+    def __init__( self, alphas, b, class_name, nr_svs, support_vector_labels,
+                  support_vectors ):
         self.class_name = class_name
+        self.support_vectors = support_vectors
+        self.support_vector_labels = support_vector_labels
+        self.nr_svs = nr_svs
+        self.alphas = alphas
+        self.b = b
+
+    def predict( self, x ):
+        ''' Predict class for point x. '''
+        score = 0.0
+
+        for i in range( self.nr_svs ):
+            score += self.alphas[i] * \
+                     self.support_vector_labels[i] * \
+                     self.kernel( i, x )
+        score += self.b
+
+        return score
+
+    def kernel( self, i, x ):
+        ''' The actual kernel function, only dot product for now
+        '''
+        return np.inner( self.support_vectors[i], x )

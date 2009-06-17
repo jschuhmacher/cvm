@@ -35,8 +35,8 @@ class Predictor( object ):
     def score ( self, model, xs ):
         ''' Calculate the score of multiple records: score = w^T * x + b '''
         scores = []
-        for class_profile in self.model.profiles:
-            scores.append( numpy.linalg.dot( class_profile.weights, xs ) + class_profile.b )
+        for x in xs:
+            scores.append( model.predict( x ) )
         return scores
 
     def evaluate ( self, model, xs ):
