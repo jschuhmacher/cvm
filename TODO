@@ -4,6 +4,7 @@
  - Check all matrix copying, numpy and scipy copy by reference
  - Fix all random seeds
  - Check if the QP-solver can handle intitial values for alpha
+ - Do not normalise the dataset, but normalise the kernel matrix
 
 # Dataset # 
  - Improve data structure for data-sets, 
