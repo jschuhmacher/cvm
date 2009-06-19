@@ -25,7 +25,6 @@ moduledocs
 '''
 
 # System
-import stackless
 import logging
 
 # Local
@@ -55,13 +54,12 @@ class Trainer( object ):
         for label in self.dataset.get_classes():
             logging.info( "  Initialising training job for class <{0}>".
                           format( label ) )
-            stackless.tasklet( self.train_tasklet )( label )
+            self.train_tasklet( label )
 
-
-        logging.info( "  Scheduling training jobs" )
-        stackless.schedule()
-        logging.info( '  Starting training jobs' )
-        stackless.run()
+        # logging.info( "  Scheduling training jobs" )
+        # stackless.schedule()
+        # logging.info( '  Starting training jobs' )
+        # stackless.run()
 
         return self.models
 

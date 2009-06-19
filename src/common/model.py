@@ -24,11 +24,20 @@ File: model.py
 moduledocs
 '''
 
+import math
+import numpy as np
+from scipy import sparse
+
+# 3rd-party
+import psyco
+psyco.full()
+
 class Model( object ):
     ''' classdocs
     '''
     class_name = None
     support_vectors = None
+    support_vectors_cache = None
     support_vector_labels = None
     nr_svs = 0
     alphas = None
@@ -38,6 +47,12 @@ class Model( object ):
                   support_vectors ):
         self.class_name = class_name
         self.support_vectors = support_vectors
+
+        self.support_vectors_cache = support_vectors.copy()
+        for i in range( self.nr_svs ):
+            self.support_vectors_cache[i, 0] = self.support_vectors[i] * \
+                                               self.support_vectors[i].T
+
         self.support_vector_labels = support_vector_labels
         self.nr_svs = nr_svs
         self.alphas = alphas
@@ -48,14 +63,22 @@ class Model( object ):
         score = 0.0
 
         for i in range( self.nr_svs ):
-            score += self.alphas[i] * \
-                     self.support_vector_labels[i] * \
+            score += self.alphas[i, 0] * \
+                     self.support_vector_labels[i, 0] * \
                      self.kernel( i, x )
         score += self.b
 
         return score
 
     def kernel( self, i, x ):
-        ''' The actual kernel function, only dot product for now
+        ''' 
+        The actual kernel function, only dot product for now
         '''
-        return np.inner( self.support_vectors[i], x )
+        k_ij = self.support_vectors[i] * x.T
+        k_ii = self.support_vectors_cache[i, 0]
+        k_jj = x * x.T
+
+        if k_ij == 0:
+            return 0.0
+
+        return ( k_ij[0, 0] / ( np.math.sqrt( k_ii ) * np.math.sqrt( k_jj[0, 0] ) ) )

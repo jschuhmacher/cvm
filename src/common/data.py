@@ -21,24 +21,34 @@
 ''' 
 File: data.py
 
-This is the "data" module. It contains data structures for labelled and unlabel-
-led sparse data sets, for use within a linear classifier. It provides several 
-convenience methods, e.g. for IO, splitting, shuffling, normalisation etc. 
+This is the "data" module. It contains data structures for labelled and 
+unlabelled sparse data sets, for use within a linear classifier. It should 
+eventually provide several convenience methods, e.g. for IO, splitting, 
+shuffling, etc. 
 '''
 
+# System
 import logging
 import sys
 import random
-import numpy as np
-import scipy as sp
 import pprint
+import cPickle as pickle
 
+# 3rd-party
+import numpy as np
+from scipy import sparse
+
+
+# Fix random seed
 random.seed( 200 )
 
 class Dataset( object ):
     ''' Data structure representing a dataset.
     '''
 
+    # To be more useful with other datasets eventually this should be removed, 
+    # either the dataset itself will need to be changed, or some more general 
+    # mechanism will need to be implemented.
     TRAINING_ATTACK_TYPES = {
         'normal': 'normal',
         'back': 'dos',
@@ -65,51 +75,75 @@ class Dataset( object ):
         'warezmaster': 'r2l',
     }
 
-    ''' A list of classes '''
-    __classes = None
+    def __init__( self ):
+        ''' A list of classes '''
+        self.__classes = None
 
-    ''' "Feature: type" pairs. Type is either continuous or symbolic. '''
-    __features = None
+        ''' "Feature: type" pairs. Type is either continuous or symbolic. '''
+        self.__features = None
 
-    ''' Number of symbolic features '''
-    __nr_symbolic = 0
+        ''' Number of symbolic features '''
+        self.__nr_symbolic = 0
 
-    ''' Number of continuous features '''
-    __nr_continuous = 0
+        ''' Number of continuous features '''
+        self.__nr_continuous = 0
 
-    ''' List of lists of features '''
-    __data = None
+        ''' List of lists of features '''
+        self.__data = None
 
-    ''' Class labels, if present '''
-    __labels = None
+        ''' Class labels, if present '''
+        self.__labels = None
 
-    ''' Is this dataset labelled? '''
-    __has_labels = False
+        ''' Is this dataset labelled? '''
+        self.__has_labels = False
 
-    ''' Number of points in the dataset '''
-    __nr_points = 0
+        ''' Number of points in the dataset '''
+        self.__nr_points = 0
 
-    ''' List of pointers into the dataset '''
-    __indices = []
+        ''' List of pointers into the dataset '''
+        self.__indices = []
 
     def read ( self, header_file, data_file ):
         ''' Loads the data '''
-        self.__read_header( header_file )
-        self.__read_data( data_file )
 
-        # Create indices to the dataset
+        self.__read_header( header_file )
+
+        # XXX: Overwrite the features with a list derived from the entire dataset
+        # HACK
+        self.__features = pickle.load( open( header_file.name + '_total', 'r' ) )
+
+        pickled = False
+        try:
+            cache_file = open( data_file.name + '_cache', 'r' )
+            self.__data = pickle.load( cache_file )
+            self.__labels = pickle.load( cache_file )
+            self.__nr_points = self.__data.shape[0]
+            pickled = True
+        except Exception:
+            pass
+
+        if not pickled:
+            self.__read_data( data_file )
+            self.preprocess()
+            cache_file = open( data_file.name + '_cache', 'w' )
+            pickle.dump( self.__data, cache_file, pickle.HIGHEST_PROTOCOL )
+            pickle.dump( self.__labels, cache_file, pickle.HIGHEST_PROTOCOL )
+
         self.__indices = [x for x in range( self.__nr_points )]
 
     def shuffle ( self ):
         ''' Shuffles the data in this dataset '''
         logging.info( "  Shuffling dataset" )
-       # random.shuffle( self.__indices )
+        random.shuffle( self.__indices )
 
     def split( self, percentage=66.6 ):
         ''' Returns 2 subsets of this dataset according to the parameter
         '''
         logging.info( '    TODO: split' )
         pass
+
+    def get_nr_features( self ):
+        return ( sum( map( len, self.__features[2] ) ) + self.__nr_continuous )
 
     def preprocess ( self ):
         ''' 
@@ -119,61 +153,40 @@ class Dataset( object ):
         features. For every possible value a symbolic feature has in the 
         data, an indicator will be generated.  
         '''
-        continuous_data = []
+        total_nr_features = sum( map( len, self.__features[2] ) ) + \
+                            self.__nr_continuous
+
+        # Create a sparse matrix of nr_points rows and nr_features columns
+        continuous_data = sparse.dok_matrix( ( self.__nr_points, total_nr_features ), dtype=np.float )
 
         logging.debug( '  Converting to continuous data' )
-        for connection in self.__data:
-            continuous_connection = []
-
-            for i in range( self.__nr_symbolic + self.__nr_continuous ):
+        for i in range( self.__nr_points ):
+            for j in range( self.__nr_symbolic + self.__nr_continuous ):
                 # Symbolic features are converted to indicators
-                if self.__features[1][i] == 'symbolic':
-                    for j in self.__features[2]:
-                        if j == connection[i]:
-                            continuous_connection.append( 1.0 )
-                        else:
-                            continuous_connection.append( 0.0 )
+                if self.__features[1][j] == 'symbolic':
+                    for symbol in self.__features[2][j]:
+                        if self.__data[i][j] == symbol:
+                            continuous_data[i, j] = 1.0
+#                        else:
+#                            continuous_data[i, j] = 0.0
                 # Continuous features are copied
-                elif self.__features[1][i] == 'continuous':
-                    continuous_connection.append( connection[i] )
+                elif self.__features[1][j] == 'continuous':
+                    if self.__data[i][j] != 0:
+                        continuous_data[i, j] = self.__data[i][j]
                 else:
-                    raise ValueError( "Undefined feature type" )
+                    raise ValueError( "Undefined feature type: {0}".format( symbol ) )
 
-            continuous_data.append( continuous_connection )
-
-        logging.debug( '  Converting to numpy format' )
-        self.__data = np.asarray( continuous_data, np.float32 )
-        continuous_data = None
-        #self.__data = sp.sparse.csr_matrix( self.__data )
-
-    def normalise ( self ):
-        ''' Normalises the values in this dataset to the range 0..1 '''
-        maxima = np.amax( self.__data, axis=0 )
-
-        empty = []
-        for i in range( maxima.size ):
-            if maxima[i] == 0.0:
-                # Empty column
-                empty.append( 0 )
-            else:
-                empty.append( 1 )
-
-        logging.debug( '  Pruning empty features' )
-        # Prune dataset and maxima
-        self.__data = np.compress( empty, self.__data, axis=1 )
-        maxima = np.compress( empty, maxima, axis=0 )
-
-        logging.debug( '  {0} out of {1} features left'.format( maxima.size, len( empty ) ) )
-
-        logging.info( '  Normalising data' )
-        # Scale dataset between 0 and 1 
-        self.__data = self.__data / maxima
+        self.__data = continuous_data.tocsr()
 
     def get_indices( self ):
         ''' Returns indices into this dataset '''
         return self.__indices
 
     def get_point( self, index ):
+        ''' Returns the data point at index '''
+        return self.__data[index, :].todense()
+
+    def get_sparse_point( self, index ):
         ''' Returns the data point at index '''
         return self.__data[index]
 
@@ -182,7 +195,7 @@ class Dataset( object ):
         return self.__labels[index]
 
     def get_classes ( self ):
-        ''' Returs a list of classes '''
+        ''' Returns a list of classes '''
         return self.__classes
 
     def __read_header( self, header_file ):
@@ -193,7 +206,11 @@ class Dataset( object ):
         # But for now they are hard coded
         self.__classes = ['normal', 'u2r', 'dos', 'r2l', 'probe']
 
-        self.__features = ( [], [], [] )
+        self.__features = ( [], # Feature names
+                            [], # Feature type: continuous or symbolic
+                            [], # If symbolic: a set of possible symbols
+                                # otherwise: empty set 
+                          )
         while True:
             feature = header_file.readline()
             if len( feature ) == 0:
@@ -231,10 +248,10 @@ class Dataset( object ):
                 self.__labels.append( self.TRAINING_ATTACK_TYPES[
                      connection[self.__nr_continuous + self.__nr_symbolic]] )
                 self.__data.append( connection[:-1] )
-                self.__register_symbols( connection[:-1] )
+                # self.__register_symbols( connection[:-1] )
             else:
                 self.__data.append( connection )
-                self.__register_symbols( connection )
+                # self.__register_symbols( connection )
             self.__nr_points += 1
 
         logging.info( '  Read {0} connections from file'.
@@ -242,8 +259,8 @@ class Dataset( object ):
 
         # Convert list of sets in self.__features to a list of lists, to 
         # fixate the ordering.
-        self.__features = self.__features[0], self.__features[1], map ( list, self.__features[2] )
-
+        # self.__features = self.__features[0], self.__features[1], ( map ( list, self.__features[2] ) )
+        # pprint.pprint( self.__features, sys.stdout )
 
         if self.__has_labels:
             logging.info( '    labels are present' )
@@ -251,8 +268,9 @@ class Dataset( object ):
             logging.info( '    labels are not present' )
 
     def __register_symbols( self, connection ):
-        ''' Register the various occurances of feature-values for symbolic 
-            features 
+        ''' 
+        Register the various occurrences of feature-values for symbolic 
+        features.
         '''
         for i in range( self.__nr_continuous + self.__nr_symbolic ):
             if self.__features[1][i] == 'symbolic':
