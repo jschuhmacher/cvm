@@ -103,7 +103,7 @@ def prepare_testing( models, dataset ):
 def do_testing( predictor ):
     ''' Do the testing phase '''
     logging.info ( 'Testing phase...' )
-    predictor.predict()
+    predictor.concurrent_predict()
 
 def initialise_cli ():
     ''' Set up command line arguments '''
@@ -164,6 +164,4 @@ def main():
 
 
 if __name__ == '__main__':
-    import psyco
-    psyco.full()
     sys.exit( main() )

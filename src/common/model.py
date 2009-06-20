@@ -28,10 +28,6 @@ import math
 import numpy as np
 from scipy import sparse
 
-# 3rd-party
-import psyco
-psyco.full()
-
 class Model( object ):
     ''' classdocs
     '''

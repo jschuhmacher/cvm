@@ -36,7 +36,6 @@ import scipy as sp
 from scipy import sparse
 import cvxopt
 import cvxopt.solvers
-import psyco
 
 # Local
 import common.data
@@ -44,7 +43,6 @@ import common.model
 import classify.predictor
 
 random.seed( 200 )
-psyco.full()
 
 class CVM( object ):
     ''' 
