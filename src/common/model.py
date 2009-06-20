@@ -50,8 +50,8 @@ class Model( object ):
 
         self.support_vectors_cache = support_vectors.copy()
         for i in range( self.nr_svs ):
-            self.support_vectors_cache[i, 0] = self.support_vectors[i] * \
-                                               self.support_vectors[i].T
+            self.support_vectors_cache[i] = self.support_vectors[i] * \
+                                            self.support_vectors[i].T
 
         self.support_vector_labels = support_vector_labels
         self.nr_svs = nr_svs
@@ -63,9 +63,9 @@ class Model( object ):
         score = 0.0
 
         for i in range( self.nr_svs ):
-            score += self.alphas[i, 0] * \
-                     self.support_vector_labels[i, 0] * \
-                     self.kernel( i, x )
+            score += ( self.alphas[i, 0] * \
+                       self.support_vector_labels[i, 0] * \
+                       self.kernel( i, x )[0, 0] )
         score += self.b
 
         return score
@@ -74,11 +74,11 @@ class Model( object ):
         ''' 
         The actual kernel function, only dot product for now
         '''
-        k_ij = self.support_vectors[i] * x.T
-        k_ii = self.support_vectors_cache[i, 0]
-        k_jj = x * x.T
+        #k_ij = ( self.support_vectors[i] * x.T ).todense()
+        #k_ii = ( self.support_vectors[i] * self.support_vectors[i].T ).todense()
+        #k_jj = ( x * x.T ).todense()
+        #return ( k_ij / ( np.math.sqrt( k_ii ) * np.math.sqrt( k_jj ) ) )
 
-        if k_ij == 0:
-            return 0.0
-
-        return ( k_ij[0, 0] / ( np.math.sqrt( k_ii ) * np.math.sqrt( k_jj[0, 0] ) ) )
+        return ( ( self.support_vectors[i] * x.T ).todense() / ( 
+                    np.math.sqrt( ( self.support_vectors[i] * self.support_vectors[i].T ).todense() ) *
+                    np.math.sqrt( ( x * x.T ).todense() ) ) )

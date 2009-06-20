@@ -31,6 +31,7 @@ import logging
 # Local
 import common.data
 import common.model
+import numpy as np
 
 # 3rd-party
 import psyco
@@ -57,6 +58,10 @@ class Predictor( object ):
         ''' Evaluate the models with the testset '''
 
         nr_classes = len( self.__models.keys() )
+        classes = self.__models.keys()
+
+        confusion = np.zeros( ( nr_classes, nr_classes ) )
+
         nr_total = len( self.__testset.get_indices() )
 
         # total, fp, fn, tp
@@ -68,51 +73,101 @@ class Predictor( object ):
         nr_scores = 0
         for point in self.__testset.get_indices():
             true_label = self.__testset.get_label( point )
-            class_statistics[true_label]['total'] += 1
 
             x = self.__testset.get_sparse_point( point )
 
-            for label in self.__models.keys():
+            for index, label in enumerate( classes ):
                 score = self.score_point( self.__models[label], x )
                 nr_scores += 1
 
-                if score >= 0 and label == true_label:
-                    class_statistics[label]['tp'] += 1
-                if score >= 0 and label != true_label:
-                    class_statistics[label]['fp'] += 1
-                if score < 0 and label == true_label:
-                    class_statistics[label]['fn'] += 1
-                if score < 0 and label != true_label:
-                    class_statistics[label]['tn'] += 1
+                class_statistics[label]['total'] += 1
+
+                if score >= 0:
+                    if label == true_label:
+                        class_statistics[label]['tp'] += 1.0
+                    if label != true_label:
+                        class_statistics[label]['fp'] += 1.0
+                if score < 0:
+                    if label == true_label:
+                        class_statistics[label]['fn'] += 1.0
+                    if label != true_label:
+                        class_statistics[label]['tn'] += 1.0
+
+                confusion[index, classes.index( true_label )] += 1.0
 
 
             if ( nr_scores % 1000 ) == 0 and nr_scores > 0:
                 logging.debug( '  Calculated 1000 scores' )
 
+        self.print_confusion_matrix( classes, confusion )
+        self.print_statistics( class_statistics )
 
-        print '{0:<14}|{1:>6}{2:>6}{3:>6}{4:>6} |{5:>8}{6:>8}{7:>8}'.\
-              format( 'Pred. class', 'TP', 'TN', 'FP', 'FN', 'Prec.', 'Rec.',
-                      'F1' )
-        print '-----------------------------------------------------------------'
+
+    def print_statistics( self, class_statistics ):
+        ''' Print some statistics to the screen '''
+        print ''
+        print 'Class statistics:'
+        print ''
+        print '{0:<14}|{1:>6}{2:>6}{3:>6}{4:>6} |{5:>8}{6:>8}{7:>8}{8:>8}'.\
+              format( 'Pred. class', 'TP', 'TN', 'FP', 'FN', 'ACC', 'TPR',
+                      'FPR', 'F1' )
+        print '-------------------------------------------------------------------------'
         for label in class_statistics.keys():
             precision = 0.0
             if ( class_statistics[label]['tp'] + class_statistics[label]['fp'] ) > 0:
-                precision = class_statistics[label]['tp'] / ( float( class_statistics[label]['tp'] ) + float( class_statistics[label]['fp'] ) )
+                precision = class_statistics[label]['tp'] / ( class_statistics[label]['tp'] +
+                                                              class_statistics[label]['fp'] )
 
             recall = 0.0
             if ( class_statistics[label]['tp'] + class_statistics[label]['fn'] ) > 0:
-                recall = class_statistics[label]['tp'] / ( float( class_statistics[label]['tp'] ) + float( class_statistics[label]['fn'] ) )
+                recall = class_statistics[label]['tp'] / ( class_statistics[label]['tp'] +
+                                                           class_statistics[label]['fn'] )
+
+            fall_out = 0.0
+            if ( class_statistics[label]['fp'] + class_statistics[label]['tn'] ) > 0:
+                fall_out = class_statistics[label]['fp'] / ( class_statistics[label]['fp'] +
+                                                             class_statistics[label]['tn'] )
+
+            accuracy = 0.0
+            if class_statistics[label]['total'] > 0:
+                accuracy = ( class_statistics[label]['tp'] + class_statistics[label]['tn'] ) / class_statistics[label]['total']
 
             f1 = 0.0
             if ( precision + recall ) > 0:
                 f1 = ( 2.0 * precision * recall ) / ( precision + recall )
 
-            print '{0:<14}|{1:>6}{2:>6}{3:>6}{4:>6} |{5:>8.4}{6:>8.4}{7:>8.4}'.\
-                   format( label, class_statistics[label]['tp'],
-                           class_statistics[label]['tn'],
-                           class_statistics[label]['fp'],
-                           class_statistics[label]['fn'],
-                           precision, recall, f1 )
+            print '{0:<14}|{1:>6}{2:>6}{3:>6}{4:>6} |{5:>8.4}{6:>8.4}{7:>8.4}{8:>8.4}'.\
+                   format( label,
+                           int( class_statistics[label]['tp'] ),
+                           int( class_statistics[label]['tn'] ),
+                           int( class_statistics[label]['fp'] ),
+                           int( class_statistics[label]['fn'] ),
+                           accuracy,
+                           recall,
+                           fall_out,
+                           f1 )
+
+    def print_confusion_matrix( self, classes, confusion ):
+        ''' Print a confusion matrix to the screen '''
+
+        print ''
+        print 'Confusion matrix:'
+        print ''
+        print '{0:>8} | '.format( ' ' ),
+        for actual, alabel in enumerate( classes ):
+            print '{0:>8}'.format( alabel ),
+        print ''
+        print '--------------------------------------------------------'
+
+        for pred, plabel in enumerate( classes ):
+            print '{0:<8} | '.format( plabel ),
+            for actual, alabel in enumerate( classes ):
+                print '{0:>8}'.format( int( confusion[pred, actual] ) ),
+            print ''
+
+        print ''
+        print '* Columns are truth, rows are predicted.'
+        print ''
 
 if __name__ == '__main__':
     import doctest

@@ -375,12 +375,15 @@ class CVM( object ):
         self.pos_turn = not self.pos_turn
 
     def __make_model( self ):
-        ''' Store results in the model '''
-
+        ''' 
+        Store the lagrange multipliers, bias and core vectors. These will
+        be used for classifying unseen points. 
+        '''
         logging.info( '  Creating model' )
         nr_cvs = len( self.coreset )
         alphas = sparse.lil_matrix( ( nr_cvs, 1 ) )
-        support_vectors = sparse.lil_matrix( ( nr_cvs, self.dataset.get_nr_features() ) )
+        support_vectors = sparse.lil_matrix( ( nr_cvs,
+                                               self.dataset.get_nr_features() ) )
         support_vector_labels = sparse.lil_matrix( ( nr_cvs, 1 ) )
 
         for i in range( nr_cvs ):
@@ -388,6 +391,7 @@ class CVM( object ):
             support_vector_labels[i, 0] = self.labels[self.coreset[i]]
             alphas[i, 0] = self.alphas[i, 0]
 
+        # Storage in scipy sparse matrix format
         support_vectors = support_vectors.tocsr()
         support_vector_labels = support_vector_labels.tocsr()
         alphas = alphas.tocsr()
