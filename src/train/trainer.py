@@ -37,22 +37,24 @@ class Trainer( object ):
     ''' classdocs
     '''
     dataset = None
-    models = None
 
     def __init__( self, dataset ):
         self.dataset = dataset
-        self.models = dict()
 
     def train_tasklet ( self, label ):
         ''' Train one classifier for one class '''
         logging.info( "  Starting training job for class <{0}>".format( label ) )
         classifier = cvm.CVM( label, self.dataset )
-        self.models[label] = classifier.train()
+        return ( label, classifier.train() )
 
     def train( self ):
         ''' Train a classifier for every class, tries to train the profiles 
             concurrently.
         '''
         pool = multiprocessing.Pool( processes=multiprocessing.cpu_count() )
-        pool.map( self.train_tasklet, self.dataset.get_classes() )
-        return self.models
+        result = pool.map( self.train_tasklet, self.dataset.get_classes() )
+
+        models = {}
+        for model in result:
+            models[model[0]] = model[1]
+        return models

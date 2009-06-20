@@ -91,6 +91,7 @@ def load_models( model_file ):
 def save_models( models, model_file ):
     ''' Save trained models to file '''
     logging.info ( 'Saving models...' )
+    print models
     pickle.dump( models, model_file, pickle.HIGHEST_PROTOCOL )
 
 def prepare_testing( models, dataset ):
