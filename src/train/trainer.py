@@ -26,6 +26,7 @@ moduledocs
 
 # System
 import logging
+import multiprocessing
 
 # Local
 import common.data
@@ -44,6 +45,7 @@ class Trainer( object ):
 
     def train_tasklet ( self, label ):
         ''' Train one classifier for one class '''
+        logging.info( "  Starting training job for class <{0}>".format( label ) )
         classifier = cvm.CVM( label, self.dataset )
         self.models[label] = classifier.train()
 
@@ -51,15 +53,6 @@ class Trainer( object ):
         ''' Train a classifier for every class, tries to train the profiles 
             concurrently.
         '''
-        for label in self.dataset.get_classes():
-            logging.info( "  Initialising training job for class <{0}>".
-                          format( label ) )
-            self.train_tasklet( label )
-
-        # logging.info( "  Scheduling training jobs" )
-        # stackless.schedule()
-        # logging.info( '  Starting training jobs' )
-        # stackless.run()
-
+        pool = multiprocessing.Pool( processes=multiprocessing.cpu_count() )
+        pool.map( self.train_tasklet, self.dataset.get_classes() )
         return self.models
-
