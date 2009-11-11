@@ -34,6 +34,7 @@ import common.data
 import common.model
 import numpy as np
 
+
 class Predictor( object ):
     ''' 
     classdocs
@@ -72,37 +73,42 @@ class Predictor( object ):
         ''' Evaluate the models with the testset '''
         nr_classes = len( self.__models.keys() )
         classes = self.__models.keys()
-        nr_points = len( self.__testset.get_indices() )
+        nr_points = self.__testset.get_nr_points()
 
         pool = multiprocessing.Pool( processes=multiprocessing.cpu_count() )
         logging.debug( '  Scoring {0} records, using {1} CPUs'.format( 
                         nr_points, multiprocessing.cpu_count() )
                      )
-        scores = pool.map( self.concurrent_score_point,
-                           self.__testset.get_indices(),
-                           100 )
+
+        indices = zip( [self] * nr_points, range( nr_points ) )
+
+        scores = pool.map( concurrent_score_point_mp,
+                           indices, 100 )
 
         class_statistics = {}
         for label in self.__models.keys():
-            class_statistics[label] = {'total': 0,
-                                       'tp': 0,
-                                       'fp': 0,
-                                       'tn':0,
-                                       'fn': 0 }
+            class_statistics[label] = {'total': 0.0,
+                                       'tp': 0.0,
+                                       'fp': 0.0,
+                                       'tn': 0.0,
+                                       'fn': 0.0 }
 
         for score in scores:
             for label, score, true_label in score:
-                class_statistics[label]['total'] += 1
+                class_statistics[label]['total'] += 1.0
+                #print "Pred:", label, "True: ", true_label, "Score:", score
 
-                if score >= 0:
+                if score >= 0.0:
                     if label == true_label:
                         class_statistics[label]['tp'] += 1.0
-                    if label != true_label:
+                    else:
+                        # label != true_label
                         class_statistics[label]['fp'] += 1.0
-                if score < 0:
+                if score < 0.0:
                     if label == true_label:
                         class_statistics[label]['fn'] += 1.0
-                    if label != true_label:
+                    else:
+                        # label != true_label:
                         class_statistics[label]['tn'] += 1.0
 
         self.print_class_statistics( class_statistics )
@@ -114,20 +120,20 @@ class Predictor( object ):
         ''' Evaluate the models with the testset '''
         nr_classes = len( self.__models.keys() )
         classes = self.__models.keys()
-        nr_total = len( self.__testset.get_indices() )
+        nr_total = self.__testset.get_nr_points()
         nr_scores = 0
 
         # total, fp, fn, tp
         class_statistics = {}
 
         for label in self.__models.keys():
-            class_statistics[label] = {'total': 0,
-                                       'tp': 0,
-                                       'fp': 0,
-                                       'tn':0,
-                                       'fn': 0 }
+            class_statistics[label] = {'total': 0.0,
+                                       'tp': 0.0,
+                                       'fp': 0.0,
+                                       'tn': 0.0,
+                                       'fn': 0.0 }
 
-        for point in self.__testset.get_indices():
+        for point in range( nr_total ):
             true_label = self.__testset.get_label( point )
             x = self.__testset.get_sparse_point( point )
 
@@ -231,3 +237,7 @@ class Predictor( object ):
 if __name__ == '__main__':
     import doctest
     doctest.testmod()
+
+def concurrent_score_point_mp ( ar, **kwarg ):
+    return Predictor.concurrent_score_point( *ar, **kwarg )
+

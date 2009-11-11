@@ -40,9 +40,27 @@ import cvxopt.solvers
 # Local
 import common.data
 import common.model
+import common.kernels as kernels
 import classify.predictor
 
-random.seed( 200 )
+random.seed( 400 )
+
+
+''' Size of the initial set of samples taken '''
+INITIAL_CS = 2
+
+''' Size of the initial epsilon '''
+INITIAL_EPS = 0.1
+EPS_SCALE = 0.5
+
+''' Size of the set of samples taken at each iteration '''
+NR_SAMPLES = 60
+
+''' Maximum number of iterations to train '''
+MAX_ITERS = 150
+
+''' Maximum number of iterations to train '''
+MAX_TRIES = 7
 
 class CVM( object ):
     ''' 
@@ -54,116 +72,137 @@ class CVM( object ):
     # Frustrating fact: Python class attributes are global to all
     # instances of that class
 
-    def __init__( self, class_name, dataset, C=1e6, EPSILON=1.0e-6, NR_SAMPLES=59, MAX_ITERS=30 ):
-        ''' Size of the set of samples taken at each iteration '''
-        self.NR_SAMPLES = NR_SAMPLES
+    def __init__( self, class_name, dataset, EPSILON=1.0e-6, kernel=0,
+                  C=1e6, gamma=0.01 ):
+        self.__NR_SAMPLES = NR_SAMPLES
 
         ''' Acceptable approximation for the MEB '''
-        self.EPSILON = EPSILON
+        self.__EPSILON = EPSILON
 
         ''' Regularisation constant '''
-        self.C = C
+        self.__C = C
 
-        self.MAX_ITERS = MAX_ITERS
+        ''' RBF kernel '''
+        self.__gamma = gamma
 
         ''' The dataset used for training. '''
-        self.dataset = dataset
+        self.__dataset = dataset
 
         ''' The class this classifier will learn. '''
-        self.class_name = class_name
+        self.__class_name = class_name
+
+        if kernel == 0:
+            self.__kernel = kernels.norm_dot_kernel
+        elif kernel == 1:
+            self.__kernel = kernels.rbf_kernel
+        else:
+            logging.fatal( '  Unkown kernel type' )
 
         ''' 
         The core set: S
         A list of pointers into the dataset
         '''
-        self.coreset = []
+        self.__coreset = []
 
         ''' The squared radius of the ball: R^2 '''
-        self.radius2 = 0.0
+        self.__radius2 = 0.0
 
         ''' Class labels, translated to {-1, +1}, for the current class '''
-        self.labels = []
+        self.__labels = []
 
         ''' List of pointers to all positive records. '''
-        self.pos_ids = []
+        self.__pos_ids = []
 
         ''' List of pointers to all negative records. '''
-        self.neg_ids = []
+        self.__neg_ids = []
 
         ''' Data distribution for this class '''
-        self.nr_pos = 0
-        self.nr_neg = 0
+        self.__nr_pos = 0
+        self.__nr_neg = 0
 
         ''' Should next sample be positive or negative? '''
-        self.pos_turn = True
+        self.__pos_turn = True
 
         ''' Lagrange multipliers '''
-        self.alphas = np.zeros( ( 2, 1 ), np.float )
+        self.__alphas = np.zeros( ( 1, 1 ), np.float )
 
         ''' Small cache for the core vector kernel evaluations '''
-        self.k_cache = np.zeros( ( 2, 2 ), np.float )
+        self.__k_cache = np.zeros( ( 2, 2 ), np.float )
 
-        self.iteration = 0
+        self.__iteration = 0
 
         # Solver options
-        cvxopt.solvers.options['show_progress'] = True
+        cvxopt.solvers.options['show_progress'] = False
 
         # Maximum number of iterations 
-        cvxopt.solvers.options['maxiters'] = 200
+        cvxopt.solvers.options['maxiters'] = 100
 
         # Absolute accuracy
-        #cvxopt.solvers.options['abstol'] = 1e-20
+        cvxopt.solvers.options['abstol'] = self.__EPSILON * self.__EPSILON
 
         # Relative accuracy
-        #cvxopt.solvers.options['reltol'] = 0
+        cvxopt.solvers.options['reltol'] = self.__EPSILON * self.__EPSILON
 
         # Tolerance for feasibility condition
-        #cvxopt.solvers.options['feastol'] = 1e-20
-        #cvxopt.solvers.options['refinement'] = 0
+        cvxopt.solvers.options['feastol'] = 1e-12
+        cvxopt.solvers.options['refinement'] = 2
 
-        logging.debug( "    Classifier for <{0}> starts with EPSILON: {1}, C: {2}, NR_SAMPLES: {3}".
-                       format( self.class_name,
-                               self.EPSILON,
-                               self.C,
-                               self.NR_SAMPLES ) )
+        logging.debug( ( "    Classifier for <{0}> starts with EPSILON: {1}, C:" +
+                       " {2}, NR_SAMPLES: {3}" ).format( self.__class_name,
+                               self.__EPSILON,
+                               self.__C,
+                               self.__NR_SAMPLES ) )
 
         # Count class distribution
-        for i in self.dataset.get_indices():
-            label = self.dataset.get_label( i )
-            if label == self.class_name:
-                self.labels.append( 1 )
-                self.pos_ids.append( i )
-                self.nr_pos += 1
+        for i in range( self.__dataset.get_nr_points() ):
+            label = self.__dataset.get_label( i )
+            if label == self.__class_name:
+                self.__labels.append( 1 )
+                self.__pos_ids.append( i )
+                self.__nr_pos += 1
             else:
-                self.labels.append( -1 )
-                self.neg_ids.append( i )
-                self.nr_neg += 1
+                self.__labels.append( -1 )
+                self.__neg_ids.append( i )
+                self.__nr_neg += 1
 
         logging.debug( "    Class distribution for class <{0}>:{1}, <other>:{2}.".
-                       format( self.class_name, self.nr_pos, self.nr_neg ) )
+                       format( self.__class_name, self.__nr_pos, self.__nr_neg ) )
 
     def train ( self ):
         ''' 
         Learns a linear model from training examples with 2 classes.
         '''
         self.__initialise()
-        self.iteration = 0
+        self.__iteration = 0
 
-        while( self.iteration < self.MAX_ITERS ):
-            # Find a point that is further away than the radius + epsilon^2
-            new_cs = self.__furthest_point( self.radius2 + ( self.EPSILON / 2.0 ) )
+        tries = 0
+        currentEpsilon = INITIAL_EPS
+        while( tries < MAX_TRIES and self.__iteration < MAX_ITERS ):
+
+            if currentEpsilon < self.__EPSILON:
+                currentEpsilon = self.__EPSILON
+
+            eps_factor = ( 1. + currentEpsilon )
+            eps_factor *= eps_factor
+
+            new_cs = self.__furthest_point( eps_factor * self.__radius2 )
 
             # No more points remain
-            if new_cs == None:
+            if new_cs == None and tries >= MAX_TRIES:
+                logging.info( "  Completed training for class <{0}> on max tries.".
+                              format( self.__class_name ) )
                 break
+            elif new_cs == None:
+                tries += 1
             else:
+                tries = 0
                 self.__update_coreset( new_cs )
                 self.__solve_qp()
                 self.__update_radius2()
-                self.iteration += 1
+                self.__iteration += 1
 
         logging.info( "  Completed training for class <{0}> in {1} iterations".
-                      format( self.class_name, self.iteration ) )
+                      format( self.__class_name, self.__iteration ) )
 
         return self.__make_model()
 
@@ -171,22 +210,21 @@ class CVM( object ):
         ''' 
         Initialise S_0, c_0 and R_0
         '''
-        # Initialise the coreset with a balanced sample
-        z_a = self.__next_sample()
-        self.__update_coreset( z_a )
-        self.alphas[0, 0] = 0.5
 
-        z_b = self.__next_sample()
-        self.__update_coreset( z_b )
-        self.alphas[1, 0] = 0.5
-
-        #self.__update_alphas()
+        # Initialize the core set with a balanced sample
+        for i in range( INITIAL_CS ):
+            z_i = self.__next_sample()
+            if z_i != None:
+                self.__update_coreset( z_i )
+                self.__alphas[i, 0] = ( 1.0 / INITIAL_CS )
 
         # Construct a cache of kernel evaluations of the core vectors
-        n = len( self.coreset )
+        n = len( self.__coreset )
         for i in range( n ):
             for j in range( n ):
-                self.k_cache[i, j] = self.__cvm_kernel( i, j )
+                self.__k_cache[i, j] = self.__cvm_kernel( i, j )
+
+        self.__solve_qp()
 
         # Compute a new radius
         self.__update_radius2()
@@ -197,19 +235,27 @@ class CVM( object ):
         random samples when enough data is present.
         '''
         # No points left
-        if self.nr_pos <= 0 and self.nr_neg <= 0:
+        if self.__nr_pos <= 0 and self.__nr_neg <= 0:
             return None
 
-        if self.nr_pos <= 0:
-            self.pos_turn = False
-        elif self.nr_neg <= 0:
-            self.pos_turn = True
+        if self.__nr_pos <= 0:
+            self.__pos_turn = False
+        elif self.__nr_neg <= 0:
+            self.__pos_turn = True
+        else:
+            self.__pos_turn = not self.__pos_turn
 
         # Select a random point that has not yet been used
-        if self.pos_turn:
-            id = self.pos_ids[random.randint( 0, self.nr_pos - 1 )]
+        # if self.__pos_turn:
+        #r = random.randint( 1, 10 )
+        #if r <= 5 and self.__nr_pos > 0:
+        #    id = self.__pos_ids[random.randint( 0, self.__nr_pos - 1 )]
+        #elif r > 5 and self.__nr_neg > 0:
+        #    id = self.__neg_ids[random.randint( 0, self.__nr_neg - 1 )]
+        if self.__pos_turn:
+            id = self.__pos_ids[random.randint( 0, self.__nr_pos - 1 )]
         else:
-            id = self.neg_ids[random.randint( 0, self.nr_neg - 1 )]
+            id = self.__neg_ids[random.randint( 0, self.__nr_neg - 1 )]
 
         return id
 
@@ -233,47 +279,40 @@ class CVM( object ):
         
         We transform the qp to:
         
-            minimise: 0.5 \alpha^T (2.0 __cvm_kernel) \alpha + 0^T \alpha
+            minimise: 0.5 \alpha^T (__cvm_kernel) \alpha + 0^T \alpha
              \alpha
             
             s.t.: -1^T \alpha  <= 0
                    1^T \alpha   = 1
         
-        and it will hopefully work out.
+        to make it compatible with cvxopt.
         '''
-        n = len( self.coreset )
+        n = len( self.__coreset )
 
-        # Fill P[i, j] with kernel evaluations for i and j in the core set
-        # cvxopt won't take the numpy.ndarray
-        P = cvxopt.matrix( 0.0, ( n, n ) )
-        for i in range( n ):
-            for j in range( n ):
-                P[i, j] = float( self.k_cache[i, j] )
+        P = cvxopt.matrix( self.__k_cache )
 
         q = cvxopt.matrix( 0.0, ( n, 1 ) )
         G = cvxopt.matrix( 0.0, ( n, n ) )
-        G[::n + 1] = -1.0
+        G[:: n + 1] = -1.0
         h = cvxopt.matrix( 0.0, ( n, 1 ) )
         A = cvxopt.matrix( 1.0, ( 1, n ) )
         b = cvxopt.matrix( 1.0 )
-        x = cvxopt.matrix( 0.0, ( n, 1 ) )
+        x = cvxopt.matrix( self.__alphas )
 
-        for i in range( n ):
-            x[i, 0] = self.alphas[i, 0]
+        logging.info( "  {0} Solving QP for iteration {1}".format( self.__class_name,
+                                                                   self.__iteration ) )
 
-        logging.info( "  Solving QP for iteration {0}".format( self.iteration ) )
-
-        solution = cvxopt.solvers.qp( P, q, G, h, A, b, None, {'x':x} )
+        solution = cvxopt.solvers.qp( P, q, G, h, A, b, None, {'x': x} )
 
         if solution['status'] != 'optimal':
-            logging.debug( '    Could not solve QP problem, results: {0}\n'.
-                           format( pprint.pformat( solution ) ) )
+            logging.debug( '    {0} Could not solve QP problem, results: {1}\n'.
+                           format( self.__class_name, pprint.pformat( solution ) ) )
 
         # Update multipliers
-        for i in range( n ):
-            self.alphas[i, 0] = solution['x'][i, 0]
-#
-        # logging.debug( '  New Lagrange multipliers:\n' + pprint.pformat( self.alphas ) )
+        self.__alphas = np.asarray( solution['x'] ).copy()
+        print self.__class_name, self.__iteration, pprint.pformat(solution)
+
+        #logging.debug( '  New Lagrange multipliers:\n' + pprint.pformat( self.__alphas ) )
 
     def __update_radius2( self ):
         ''' 
@@ -285,13 +324,14 @@ class CVM( object ):
         as \alpha_i is 0 for non CVs, only entries corresponding to CVs need to 
         be evaluated.
         '''
-        self.radius2 = np.dot( self.alphas.T, self.k_cache.diagonal() )[0] - \
-                       self.__get_ro()
+        self.__radius2 = np.dot( self.__alphas.T, self.__k_cache.diagonal() )[0] - \
+                                 self.__get_ro()
 
-        logging.info( "  New squared radius: {0:<10.11}".format( self.radius2 ) )
+        logging.info( "  {0} New squared radius: {1:<10.11}".format( self.__class_name,
+                                                                     self.__radius2 ) )
 
         # The radius is squared, it should be positive
-        assert( self.radius2 >= 0.0 )
+        assert( self.__radius2 >= 0.0 )
 
     def __distance_to_centroid( self, z_l ):
         ''' 
@@ -304,15 +344,14 @@ class CVM( object ):
         
         see Eq. 18 in the paper.
         '''
-        cs_size = len( self.coreset )
+        cs_size = len( self.__coreset )
 
         distance2 = 0.0
         for i in range( cs_size ):
-            distance2 += self.alphas[i, 0] * self.__cvm_kernel( self.coreset[i],
-                                                                z_l )
+            distance2 += self.__alphas[i, 0] * \
+                         self.__cvm_kernel( self.__coreset[i], z_l )
 
-        return ( self.__get_ro() - 2.0 * distance2 + self.__cvm_kernel( z_l,
-                                                                        z_l ) )
+        return ( self.__get_ro() - 2.0 * distance2 + self.__cvm_kernel( z_l, z_l ) )
 
     def __furthest_point( self, prev_max_distance ):
         ''' 
@@ -322,7 +361,7 @@ class CVM( object ):
         max_distance_id = None
         max_distance = prev_max_distance
 
-        for i in range( self.NR_SAMPLES ):
+        for i in range( NR_SAMPLES ):
             new_id = self.__next_sample()
 
             # No more points 
@@ -330,7 +369,7 @@ class CVM( object ):
                 break
 
             new_distance = self.__distance_to_centroid( new_id )
-            if new_distance > max_distance:
+            if new_distance >= max_distance:
                 max_distance = new_distance
                 max_distance_id = new_id
 
@@ -339,21 +378,25 @@ class CVM( object ):
     def __update_coreset( self, max_dist_id ):
         ''' Add new points to the coreset '''
         assert( max_dist_id != None )
-        assert( ( len( self.pos_ids ) + len( self.neg_ids ) ) <= len( self.labels ) )
+        assert( ( len( self.__pos_ids ) +
+                  len( self.__neg_ids ) ) <= len( self.__labels ) )
 
-        if self.labels[max_dist_id] == 1:
-            self.nr_pos -= 1
-            self.pos_ids.remove( max_dist_id )
-        elif self.labels[max_dist_id] == -1:
-            self.nr_neg -= 1
-            self.neg_ids.remove( max_dist_id )
+        if self.__labels[max_dist_id] == 1:
+            self.__nr_pos -= 1
+            self.__pos_ids.remove( max_dist_id )
+        elif self.__labels[max_dist_id] == -1:
+            self.__nr_neg -= 1
+            self.__neg_ids.remove( max_dist_id )
+        else:
+            assert( self.__labels[max_dist_id] == 1 or
+                    self.__labels[max_dist_id] == -1 )
 
-        self.coreset.append( max_dist_id )
-        self.alphas.resize( ( len( self.coreset ), 1 ) )
+        self.__coreset.append( max_dist_id )
+        self.__alphas.resize( ( len( self.__coreset ), 1 ) )
 
         # Only do this for the newly added CV, the rest of the matrix can be 
         # copied from the previous iteration.
-        n = len( self.coreset )
+        n = len( self.__coreset )
         if n > 2:
             new_row = np.zeros( ( 1, n ), np.float )
             new_column = np.zeros( ( n - 1, 1 ), np.float )
@@ -363,14 +406,12 @@ class CVM( object ):
                     new_column[i, 0] = self.__cvm_kernel( i, n - 1 )
                 new_row[0, i] = self.__cvm_kernel( n - 1, i )
 
-            self.k_cache = np.hstack( [self.k_cache, new_column] )
-            self.k_cache = np.vstack( [self.k_cache, new_row] )
+            self.__k_cache = np.hstack( [self.__k_cache, new_column] )
+            self.__k_cache = np.vstack( [self.__k_cache, new_row] )
         else:
             for i in range( n ):
                 for j in range( n ):
-                    self.k_cache[i, j] = self.__cvm_kernel( i, j )
-
-        self.pos_turn = not self.pos_turn
+                    self.__k_cache[i, j] = self.__cvm_kernel( i, j )
 
     def __make_model( self ):
         ''' 
@@ -378,65 +419,55 @@ class CVM( object ):
         be used for classifying unseen points. 
         '''
         logging.info( '  Creating model' )
-        nr_cvs = len( self.coreset )
+        nr_cvs = len( self.__coreset )
         alphas = sparse.lil_matrix( ( nr_cvs, 1 ) )
-        support_vectors = sparse.lil_matrix( ( nr_cvs,
-                                               self.dataset.get_nr_features() ) )
+        support_vectors = []
         support_vector_labels = sparse.lil_matrix( ( nr_cvs, 1 ) )
 
-        for i in range( nr_cvs ):
-            support_vectors[i, :] = self.dataset.get_point( self.coreset[i] )
-            support_vector_labels[i, 0] = self.labels[self.coreset[i]]
-            alphas[i, 0] = self.alphas[i, 0]
+        for i, cs in enumerate( self.__coreset ):
+            support_vectors.append( self.__dataset.get_point( cs ) )
+            support_vector_labels[i, 0] = self.__labels[cs]
+            alphas[i, 0] = self.__alphas[i, 0]
 
         # Storage in scipy sparse matrix format
-        support_vectors = support_vectors.tocsr()
+        support_vectors = np.asarray( support_vectors )
+
+        support_vectors = sparse.csr_matrix( support_vectors, dtype=np.float )
         support_vector_labels = support_vector_labels.tocsr()
         alphas = alphas.tocsr()
 
-        model = common.model.Model( alphas, self.__get_b(), self.class_name,
+        model = common.model.Model( alphas, self.__get_b(), self.__class_name,
                                     nr_cvs, support_vector_labels,
-                                    support_vectors )
+                                    support_vectors, self.__kernel, self.__gamma,
+                                    self.__get_ro(), self.__C )
         return model
 
+
     def __cvm_kernel ( self, i, j ):
-        ''' The CVM kernel function
-
-            TODO ( if slow ): Implement caching
-        '''
-        d_ij = 0.0
-        if i == j:
-            d_ij = 1.0
-
-        t_ij = self.labels[i] * self.labels[j]
-        return  t_ij * self.__kernel( i, j ) + t_ij + ( d_ij / self.C )
-
-    def __kernel( self, i, j ):
         ''' 
-        The actual kernel function. It is a normalised dot product for now
-            
-        TODO ( someday ): Implement other kernels as well
-        TODO ( if slow ): Implement a caching scheme
+        The CVM kernel function. A wrapper around a module compiled with 
+        Cython.
         '''
-        k_ij = self.dataset.get_sparse_point( i ) * self.dataset.get_sparse_point( j ).T
-        k_ii = self.dataset.get_sparse_point( i ) * self.dataset.get_sparse_point( i ).T
-        k_jj = self.dataset.get_sparse_point( j ) * self.dataset.get_sparse_point( j ).T
-
-        return ( k_ij[0, 0] / ( np.math.sqrt( k_ii[0, 0] ) * np.math.sqrt( k_jj[0, 0] ) ) )
+        return kernels.cvm_kernel( self.__labels[i],
+                                   self.__labels[j],
+                                   self.__dataset.get_sparse_point( i ),
+                                   self.__dataset.get_sparse_point( j ),
+                                   i, j, self.__kernel, self.__gamma, self.__C )
 
     def __get_b( self ):
         ''' Calculate the current bias '''
         b = 0.0
-        n = len( self.coreset )
+        n = len( self.__coreset )
 
         for i in range( n ):
-            b += self.alphas[i, 0] * self.labels[self.coreset[i]]
+            b += ( self.__alphas[i, 0] * self.__labels[self.__coreset[i]] )
 
         return b
 
     def __get_ro( self ):
         ''' Calculate the current Ro '''
-        return np.dot( np.dot( self.alphas.T, self.k_cache ), self.alphas )[0, 0]
+        return np.dot( np.dot( self.__alphas.T, self.__k_cache ),
+                       self.__alphas )[0, 0]
 
 if __name__ == '__main__':
     import doctest

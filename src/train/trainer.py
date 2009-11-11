@@ -37,24 +37,44 @@ class Trainer( object ):
     ''' classdocs
     '''
     dataset = None
+    C = 1e6
+    EPS = 1e-6
+    gamma = 2.0
+    sigma = 300.0
+    kernel = 0
 
-    def __init__( self, dataset ):
+    def __init__( self, dataset, C, EPS, kernel, gamma ):
         self.dataset = dataset
+        self.C = C
+        self.EPS = EPS
+        self.kernel = kernel
+        self.gamma = gamma
 
     def train_tasklet ( self, label ):
         ''' Train one classifier for one class '''
         logging.info( "  Starting training job for class <{0}>".format( label ) )
-        classifier = cvm.CVM( label, self.dataset )
+        classifier = cvm.CVM( label, self.dataset, self.EPS, self.kernel, self.C, self.gamma )
         return ( label, classifier.train() )
 
     def train( self ):
         ''' Train a classifier for every class, tries to train the profiles 
             concurrently.
         '''
-        pool = multiprocessing.Pool( processes=multiprocessing.cpu_count() )
-        result = pool.map( self.train_tasklet, self.dataset.get_classes() )
+        #classes = zip( [self] * len( self.dataset.get_classes() ), self.dataset.get_classes() )
+        #pool = multiprocessing.Pool( processes=len( classes ) )
+        # Workaround python bug: http://www.mail-archive.com/python-list@python.org/msg228648.html
+        #result = pool.map( train_tasklet_mp, classes )
+
+        result = []
+        for i in self.dataset.get_classes():
+            if i == 'normal':
+                result.append( self.train_tasklet( i ) )
 
         models = {}
         for model in result:
             models[model[0]] = model[1]
         return models
+
+def train_tasklet_mp( ar, **kwar ):
+    return Trainer.train_tasklet( *ar, **kwar )
+

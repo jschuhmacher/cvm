@@ -1,9 +1,7 @@
-For correct functioning this program depends on the following software to be 
+For correct functioning this program depends on the following software being 
 installed:
 
-1) Python 2.6.2 Stackless: this may be obtained from subversion at:
-   http://svn.python.org/projects/stackless/branches/release26-maint/, more
-   information can be found at: http://www.stackless.com
+1) Python 2.6.2
 2) Numpy 1.4.0.dev6885: this may be obtained from subversion at:
    http://svn.scipy.org/svn/numpy/trunk/, more information can be found at:
    http://www.scipy.org/Installing_SciPy
@@ -13,6 +11,9 @@ installed:
 4) argparse 0.9.1: this may be obtained from the Python Package Index: 
    http://pypi.python.org/pypi/argparse/, more information can be found at: 
    http://code.google.com/p/argparse/
+5) CVXOPT 1.1.1, this may be obtained from: http://abel.ee.ucla.edu/cvxopt
+6) Cython 0.11.3, this may be obtained from http://www.cython.org/.
 
-although other versions of the software may happen to work correctly, this has 
+although other versions of the software may happen to work correctly, they have
 not been tested.
+

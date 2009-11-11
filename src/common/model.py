@@ -27,54 +27,36 @@ moduledocs
 import math
 import numpy as np
 from scipy import sparse
+import common.kernels as kernels
 
 class Model( object ):
-    ''' classdocs
-    '''
-    class_name = None
-    support_vectors = None
-    support_vectors_cache = None
-    support_vector_labels = None
-    nr_svs = 0
-    alphas = None
-    b = None
 
     def __init__( self, alphas, b, class_name, nr_svs, support_vector_labels,
-                  support_vectors ):
-        self.class_name = class_name
-        self.support_vectors = support_vectors
-
-        self.support_vectors_cache = support_vectors.copy()
-        for i in range( self.nr_svs ):
-            self.support_vectors_cache[i] = self.support_vectors[i] * \
-                                            self.support_vectors[i].T
-
-        self.support_vector_labels = support_vector_labels
-        self.nr_svs = nr_svs
-        self.alphas = alphas
-        self.b = b
+                  support_vectors, kernel_func, gamma, ro, C ):
+        self.__class_name = class_name
+        self.__support_vectors = support_vectors.copy()
+        self.__support_vector_labels = support_vector_labels.copy()
+        self.__nr_svs = nr_svs
+        self.__alphas = alphas.copy()
+        self.__b = b
+        self.__kernel_func = kernel_func
+        self.__gamma = gamma
+        self.__ro = ro
+        self.__C = C
 
     def predict( self, x ):
         ''' Predict class for point x. '''
         score = 0.0
+        for i in range( self.__nr_svs ):
+            score += ( self.__alphas[i, 0] * \
+                       self.__support_vector_labels[i, 0] * \
+                       self.__kernel( i, x ) )
 
-        for i in range( self.nr_svs ):
-            score += ( self.alphas[i, 0] * \
-                       self.support_vector_labels[i, 0] * \
-                       self.kernel( i, x )[0, 0] )
-        score += self.b
-
+        score += self.__b
         return score
 
-    def kernel( self, i, x ):
+    def __kernel( self, i, x ):
         ''' 
         The actual kernel function, only dot product for now
         '''
-        #k_ij = ( self.support_vectors[i] * x.T ).todense()
-        #k_ii = ( self.support_vectors[i] * self.support_vectors[i].T ).todense()
-        #k_jj = ( x * x.T ).todense()
-        #return ( k_ij / ( np.math.sqrt( k_ii ) * np.math.sqrt( k_jj ) ) )
-
-        return ( ( self.support_vectors[i] * x.T ).todense() / ( 
-                    np.math.sqrt( ( self.support_vectors[i] * self.support_vectors[i].T ).todense() ) *
-                    np.math.sqrt( ( x * x.T ).todense() ) ) )
+        return self.__kernel_func( x, self.__support_vectors[i], self.__gamma )
